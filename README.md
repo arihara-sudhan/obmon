@@ -4,6 +4,10 @@
 
 OBMON turns important rules in a PDF into work that a team can follow.
 
+## What OBMON is all about
+
+[Watch the OBMON walkthrough on Loom](https://www.loom.com/share/f2ee0a48dd2a40b5ab33d9b2c5100abe)
+
 The basic story is simple:
 
 1. Upload a PDF.
@@ -25,7 +29,7 @@ and a local SQLite database.
 - See each obligation's trigger, required action, timing, source page, and review flag.
 - Create a real operational event or trigger one from the Events page.
 - Match events to obligations using exact event types.
-- Monitor fixed deadlines inside a warning window.
+- Watch alert deadline states change as the demo date moves.
 - Review alerts separately from events, with evidence and source information.
 - Move a persisted demo date forward or reset it to test deadline behavior.
 
@@ -132,22 +136,16 @@ kept on the separate **Alerts** page.
 
 ![Triggerable events](docs/images/0005-events-page-manually-activatable-events.png)
 
-### 3. Deadline Monitor
-
-Open **Deadline Monitor**, choose a warning window, and run the monitor. OBMON
-checks fixed deadlines and creates reviewable alerts for deadlines that are
-inside the window or already overdue.
-
-The demo clock starts at **2026-10-02**. Use **Advance 1 Day** and **Reset** to
-test how alert deadline states change over time.
-
-![Deadline monitor](docs/images/0006-deadline-monitor.png)
-
-### 4. Alerts
+### 3. Alerts
 
 Open **Alerts** to review the alerts created from matching events or approaching
 deadlines. Each alert includes its reason, required action, evidence, source
 page, and current deadline state.
+
+When you create an event, Alerts shows the alert for that event instead of
+mixing it with alerts from other events. The Alerts page also has **Previous
+Day**, **Advance 1 Day**, and **Reset** controls at the top. Use them to see
+how the selected alert changes as time moves.
 
 Use **Confirm** or **Reject** to record the human decision. This review step is
 deliberate: the system finds and explains a possible obligation, but a person
@@ -169,7 +167,7 @@ PDF
   -> SQLite obligations
        |                   |
        v                   v
-  Deadline monitor    Deterministic event matching
+  Alert generation    Deterministic event matching
        |                   |
        +---------> Alert <-+
                        |
@@ -243,7 +241,7 @@ uv run --locked pytest -q
 ```
 
 The tests cover PDF parsing, obligation extraction, API endpoints, event
-matching, deadline monitoring, alert review, and the simulation clock.
+matching, alert generation, alert review, and the simulation clock.
 
 ## Project layout
 

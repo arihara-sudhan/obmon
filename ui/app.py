@@ -512,6 +512,63 @@ def _triggerable_time_requirement(obligation: dict[str, Any]) -> str:
     return requirement
 
 
+def _deduplicate_obligations(
+    obligations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep one card for obligations with the same visible details."""
+
+    seen: set[tuple[str, ...]] = set()
+    unique: list[dict[str, Any]] = []
+    display_fields = (
+        "trigger_type",
+        "required_action",
+        "time_constraint_type",
+        "time_value",
+        "time_unit",
+        "fixed_deadline",
+        "page_number",
+        "evidence_text",
+    )
+    for obligation in obligations:
+        key = tuple(str(obligation.get(field) or "") for field in display_fields)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(obligation)
+    return unique
+
+
+def _deduplicate_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one alert card for identical alerts on the same event."""
+
+    seen: set[tuple[str, ...]] = set()
+    unique: list[dict[str, Any]] = []
+    display_fields = (
+        "event_id",
+        "alert_type",
+        "required_action",
+        "computed_deadline",
+        "evidence_text",
+        "evidence_page",
+        "reason",
+    )
+    for alert in alerts:
+        key = tuple(str(alert.get(field) or "") for field in display_fields)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(alert)
+    return unique
+
+
+def _remember_event(result: dict[str, Any]) -> None:
+    """Remember the event whose alert should be shown on the Alerts page."""
+
+    event_id = result.get("event", {}).get("id")
+    if event_id is not None:
+        st.session_state["selected_event_id"] = event_id
+
+
 def _render_trigger_result(result: dict[str, Any]) -> None:
     event = result.get("event", {})
     st.markdown('<div class="obmon-section-label">Event Created</div>', unsafe_allow_html=True)
@@ -528,7 +585,7 @@ def _render_trigger_result(result: dict[str, Any]) -> None:
     )
 
     st.markdown('<div class="obmon-section-label">Matched Obligations</div>', unsafe_allow_html=True)
-    matches = result.get("matches", [])
+    matches = _deduplicate_obligations(result.get("matches", []))
     if not matches:
         _show_notice("No obligations matched this event.")
     for match in matches:
@@ -573,7 +630,7 @@ def _render_events() -> None:
                 """,
                 unsafe_allow_html=True,
             )
-            for obligation in triggerable.get("obligations", []):
+            for obligation in _deduplicate_obligations(triggerable.get("obligations", [])):
                 st.markdown(
                     f"""
                     <div class="obmon-card">
@@ -605,6 +662,7 @@ def _render_events() -> None:
                 )
                 if ok:
                     st.session_state["last_trigger_result"] = payload
+                    _remember_event(payload)
                     st.rerun()
                 _show_notice(error or "Event triggering failed.")
 
@@ -663,6 +721,7 @@ def _render_events() -> None:
             ok, response, error = _api_request("POST", "/events", json=payload)
             if ok:
                 st.session_state["last_event_result"] = response
+                _remember_event(response)
             else:
                 _show_notice(error or "Event creation failed.")
 
@@ -674,7 +733,7 @@ def _render_events() -> None:
         f'<div class="obmon-muted">Stored event: {_safe(event.get("external_id"))}</div>',
         unsafe_allow_html=True,
     )
-    matches = result.get("matches", [])
+    matches = _deduplicate_obligations(result.get("matches", []))
     st.markdown('<div class="obmon-section-label">Matched Obligations</div>', unsafe_allow_html=True)
     if matches:
         for match in matches:
@@ -696,29 +755,6 @@ def _render_events() -> None:
     else:
         _show_notice("No obligations matched this event.")
 
-def _render_deadline_monitor() -> None:
-    st.markdown('<div class="obmon-section-label">Deadline Monitor</div>', unsafe_allow_html=True)
-    st.markdown("Check fixed deadlines within a deterministic warning window.")
-    _render_simulation_controls()
-    warning_days = st.number_input("Warning Window", min_value=0, value=7, step=1)
-    if st.button("Run Monitor", type="primary"):
-        ok, payload, error = _api_request(
-            "POST",
-            f"/monitor/deadlines?warning_days={int(warning_days)}",
-        )
-        if ok:
-            st.session_state["monitor_result"] = payload
-        else:
-            _show_notice(error or "Deadline monitoring failed.")
-
-    result = st.session_state.get("monitor_result")
-    if result:
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Obligations Checked", result.get("obligations_checked", 0))
-        col2.metric("Alerts Created", result.get("alerts_created", 0))
-        col3.metric("Skipped", result.get("skipped_obligations", 0))
-
-
 def _review_alert(alert_id: int, decision: str, comment: str) -> tuple[bool, str | None]:
     ok, _, error = _api_request(
         "POST",
@@ -731,12 +767,26 @@ def _review_alert(alert_id: int, decision: str, comment: str) -> tuple[bool, str
 def _render_alerts() -> None:
     st.markdown('<div class="obmon-section-label">Alerts</div>', unsafe_allow_html=True)
     st.markdown("Review obligations matched by events or approaching fixed deadlines.")
+    _render_simulation_controls()
+
     ok, alerts, error = _api_request("GET", "/alerts")
     if not ok:
         _show_notice(error or "Unable to load alerts.")
         return
+
+    selected_event_id = st.session_state.get("selected_event_id")
+    if selected_event_id is not None:
+        alerts = [alert for alert in alerts if alert.get("event_id") == selected_event_id]
+        st.markdown(
+            '<div class="obmon-section-label">Selected Event</div>',
+            unsafe_allow_html=True,
+        )
+    alerts = _deduplicate_alerts(alerts)
     if not alerts:
-        _show_notice("No alerts have been created.")
+        if selected_event_id is not None:
+            _show_notice("No alerts were created for the selected event.")
+        else:
+            _show_notice("No alerts have been created.")
         return
 
     for alert in alerts:
@@ -784,7 +834,7 @@ st.markdown(
 
 section = st.radio(
     "Navigation",
-    ["Documents", "Events", "Deadline Monitor", "Alerts"],
+    ["Documents", "Events", "Alerts"],
     horizontal=True,
     label_visibility="collapsed",
 )
@@ -793,7 +843,5 @@ if section == "Documents":
     _render_documents()
 elif section == "Events":
     _render_events()
-elif section == "Deadline Monitor":
-    _render_deadline_monitor()
 else:
     _render_alerts()

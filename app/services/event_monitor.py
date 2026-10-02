@@ -42,6 +42,24 @@ def computed_relative_deadline(
     return None
 
 
+def obligation_key(obligation: Obligation) -> tuple[str, ...]:
+    """Identify duplicate obligation rows by the details users can see."""
+
+    return tuple(
+        str(getattr(obligation, field) or "")
+        for field in (
+            "trigger_type",
+            "required_action",
+            "time_constraint_type",
+            "time_value",
+            "time_unit",
+            "fixed_deadline",
+            "page_number",
+            "evidence_text",
+        )
+    )
+
+
 def match_event(db: Session, event: Event) -> EventMonitoringResult:
     """Match one event by exact event type and create deterministic alerts."""
 
@@ -51,7 +69,15 @@ def match_event(db: Session, event: Event) -> EventMonitoringResult:
         .order_by(Obligation.id)
     ).all()
     alerts: list[Alert] = []
+    unique_obligations: list[Obligation] = []
+    seen_obligations: set[tuple[str, ...]] = set()
     for obligation in obligations:
+        key = obligation_key(obligation)
+        if key in seen_obligations:
+            continue
+        seen_obligations.add(key)
+        unique_obligations.append(obligation)
+
         computed_deadline = computed_relative_deadline(event.occurred_at, obligation)
         existing_alert_query = select(Alert.id).where(
             Alert.obligation_id == obligation.id,
@@ -84,4 +110,4 @@ def match_event(db: Session, event: Event) -> EventMonitoringResult:
         )
         db.add(alert)
         alerts.append(alert)
-    return EventMonitoringResult(obligations=obligations, alerts=alerts)
+    return EventMonitoringResult(obligations=unique_obligations, alerts=alerts)

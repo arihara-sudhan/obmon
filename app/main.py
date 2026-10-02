@@ -48,7 +48,11 @@ from app.services.obligation_extractor import (
     ObligationExtractionError,
     extract_obligations,
 )
-from app.services.event_monitor import computed_relative_deadline, match_event
+from app.services.event_monitor import (
+    computed_relative_deadline,
+    match_event,
+    obligation_key,
+)
 from app.services.simulation import (
     advance_simulation_date,
     get_simulation_date,
@@ -421,10 +425,15 @@ def list_triggerable_events(
         .order_by(ObligationModel.trigger_type, ObligationModel.id)
     ).all()
     grouped: dict[str, list[TriggerableObligationResponse]] = {}
+    seen_by_trigger: dict[str, set[tuple[str, ...]]] = {}
     for obligation in obligations:
         trigger_type = obligation.trigger_type
         if trigger_type is None:
             continue
+        key = obligation_key(obligation)
+        if key in seen_by_trigger.setdefault(trigger_type, set()):
+            continue
+        seen_by_trigger[trigger_type].add(key)
         grouped.setdefault(trigger_type, []).append(
             TriggerableObligationResponse(
                 obligation_id=obligation.id,
